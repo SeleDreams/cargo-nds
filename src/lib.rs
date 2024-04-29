@@ -266,7 +266,7 @@ pub fn get_metadata(messages: &[Message]) -> NDSConfig {
 /// This will fail if `ndstool` is not within the running directory or in a directory found in $PATH
 pub fn build_nds(config: &NDSConfig, verbose: bool) {
     let mut command = Command::new("ndstool");
-    let banner_text = format!("\"{};{};{}\"", &config.name, &config.description, &config.author);
+    let banner_text = format!("{};{};{}", &config.name, &config.description, &config.author);
     command
         .arg("-c")
         .arg(config.path_nds())
