@@ -266,7 +266,8 @@ pub fn get_metadata(messages: &[Message]) -> NDSConfig {
 /// This will fail if `ndstool` is not within the running directory or in a directory found in $PATH
 pub fn build_nds(config: &NDSConfig, verbose: bool) {
     let mut command = Command::new("ndstool");
-    let banner_text = format!("{};{};{}", &config.name, &config.description, &config.author);
+    let name = get_name(config);
+    let banner_text = format!("{};{};{}", name.0.file_name().unwrap().to_string_lossy(), &config.description, &config.author);
     command
         .arg("-c")
         .arg(config.path_nds())
@@ -362,6 +363,35 @@ pub fn get_romfs_path(config: &NDSConfig) -> (PathBuf, bool) {
     romfs_path.push(romfs_dir_setting);
 
     (romfs_path, is_default)
+}
+
+
+/// Read the `RomFS` path from the Cargo manifest. If it's unset, use the default.
+/// The returned boolean is true when the default is used.
+pub fn get_name(config: &NDSConfig) -> (PathBuf, bool) {
+    let manifest_path = &config.cargo_manifest_path;
+    let manifest_str = std::fs::read_to_string(manifest_path)
+        .unwrap_or_else(|e| panic!("Could not open {}: {e}", manifest_path.display()));
+    let manifest_data: toml::Value =
+        toml::de::from_str(&manifest_str).expect("Could not parse Cargo manifest as TOML");
+
+    // Find the romfs setting and compute the path
+    let mut is_default = false;
+    let name_setting = manifest_data
+        .as_table()
+        .and_then(|table| table.get("package"))
+        .and_then(toml::Value::as_table)
+        .and_then(|table| table.get("name"))
+        .and_then(toml::Value::as_str)
+        .unwrap_or_else(|| {
+            is_default = true;
+            "No Name"
+        });
+    let mut name = manifest_path.clone();
+    name.pop(); // Pop Cargo.toml
+    name.push(name_setting);
+
+    (name, is_default)
 }
 
 /// Read the `icon` path from the Cargo manifest. If it's unset, use the default.
