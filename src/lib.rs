@@ -250,8 +250,8 @@ pub fn get_metadata(messages: &[Message]) -> NDSConfig {
     };
 
     NDSConfig {
-        name,
-        author,
+        name : name,
+        author : author,
         description: package
             .description
             .clone()

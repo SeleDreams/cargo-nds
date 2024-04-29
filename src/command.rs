@@ -481,7 +481,7 @@ impl Test {
     }
 }
 
-const TOML_CHANGES: &str = r#"libnds-sys = { path = "/home/seledreams/libnds-rs/libnds-sys/" }
+const TOML_CHANGES: &str = r#"libnds-sys = { git = "https://github.com/SeleDreams/libnds-sys.git" }
 
 [package.metadata.nds]
 romfs_dir = "romfs"
