@@ -565,15 +565,17 @@ const TARGET_JSON: &str = r#"{
 
 const CUSTOM_MAIN_RS: &str = r#"#![no_main]
 #![no_std]
-use core::ffi::c_int;
+extern crate alloc;
 use libnds_sys::arm9_bindings::*;
+use libnds_sys::*;
+use core::ffi::*;
 #[no_mangle]
 extern "C" fn main() -> c_int
 {
     unsafe
     {
         consoleDemoInit();       
-        printf("Hello World!\n\0".as_ptr() as *const i8);
+        println!("Hello World!");
         loop {
             swiWaitForVBlank();
             scanKeys();
