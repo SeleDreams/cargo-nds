@@ -78,6 +78,10 @@ rustdoc features to make them work, so the output won't be as pretty and will
 require some manual workarounds to actually run the tests and see output from them.
 For now, `cargo nds test --doc` will not build a nds file or use `dslink` at all.
 
+For the time being, only arm9 homebrews can be built. I am still thinking about the best way to integrate arm7 support to the workflow.
+
+The default arm7 binary of blocksds will be bundled in the nds file.
+
 ## License
 
 This project is distributed under the MIT license or the Apache-2.0 license.
