@@ -409,13 +409,13 @@ pub struct NDSConfig {
 
 impl NDSConfig {
     pub fn path_nds(&self) -> PathBuf {
-        self.target_path.with_extension("nds")
+        self.target_path.with_extension("").with_extension("nds")
     }
     pub fn path_arm9(&self) -> PathBuf {
-        self.target_path.with_extension("arm9.elf")
+        self.target_path.with_extension("").with_extension("arm9.elf")
     }
     pub fn path_arm7(&self) -> PathBuf {
-        let arm7 =self.target_path.with_extension("arm7.elf");
+        let arm7 =self.target_path.with_extension("").with_extension("arm7.elf");
         if arm7.exists() {
             return arm7;
         }
