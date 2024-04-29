@@ -25,25 +25,6 @@ use crate::graph::UnitGraph;
 pub fn run_cargo(input: &Input, message_format: Option<String>) -> (ExitStatus, Vec<Message>) {
     let mut command = make_cargo_command(input, &message_format);
 
-    if input.cmd.should_compile() {
-        let libctru = if should_use_ctru_debuginfo(&command, input.verbose) {
-            "ctrud"
-        } else {
-            "ctru"
-        };
-
-        let rustflags = command
-            .get_envs()
-            .find(|(var, _)| var == &OsStr::new("RUSTFLAGS"))
-            .and_then(|(_, flags)| flags)
-            .unwrap_or_default()
-            .to_string_lossy();
-
-        let rustflags = format!("{rustflags} -l{libctru}");
-
-        command.env("RUSTFLAGS", rustflags);
-    }
-
     if input.verbose {
         print_command(&command);
     }
@@ -77,29 +58,6 @@ pub fn run_cargo(input: &Input, message_format: Option<String>) -> (ExitStatus, 
         .unwrap();
 
     (process.wait().unwrap(), messages)
-}
-
-/// Ensure that we use the same `-lctru[d]` flag that `ctru-sys` is using in its build.
-fn should_use_ctru_debuginfo(cargo_cmd: &Command, verbose: bool) -> bool {
-    match UnitGraph::from_cargo(cargo_cmd, verbose) {
-        Ok(unit_graph) => {
-            let Some(unit) = unit_graph
-                .units
-                .iter()
-                .find(|unit| unit.target.name == "ctru-sys")
-            else {
-                eprintln!("Warning: unable to check if `ctru` debuginfo should be linked: `ctru-sys` not found");
-                return false;
-            };
-
-            let debuginfo = unit.profile.debuginfo.unwrap_or(0);
-            debuginfo > 0
-        }
-        Err(err) => {
-            eprintln!("Warning: unable to check if `ctru` debuginfo should be linked: {err}");
-            false
-        }
-    }
 }
 
 /// Create a cargo command based on the context.

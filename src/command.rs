@@ -481,32 +481,106 @@ impl Test {
     }
 }
 
-const TOML_CHANGES: &str = r#"ctru-rs = { git = "https://github.com/rustnds/ctru-rs" }
+const TOML_CHANGES: &str = r#"libnds-sys = { path = "/home/seledreams/libnds-rs/libnds-sys/" }
 
-[package.metadata.cargo-nds]
+[package.metadata.nds]
 romfs_dir = "romfs"
 "#;
 
-const CUSTOM_MAIN_RS: &str = r#"use ctru::prelude::*;
+const TARGET_JSON: &str = r#"{
+    "abi": "eabi",
+    "arch": "arm",
+    "data-layout": "e-m:e-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64",
+    "env" : "picolibc",
+    "exe-suffix" : ".arm9.elf",
+    "is-builtin": false,
+    "linker": "arm-none-eabi-gcc",
+    "llvm-target": "armv5te-none-gnu",
+    "relocation-model": "static",
+    "target-endian": "little",
+    "target-pointer-width": "32",
+    "target-c-int-width": "32",
+    "executables": true,
+    "linker-flavor": "gcc",
+    "max-atomic-width": 32,
+    "disable-redzone": true,
+    "emit-debug-gdb-scripts": false,
+    "features" : "+soft-float,+strict-align,+atomics-32",
+    "panic-strategy" : "abort",
+    "linker-is-gnu": true,
+    "target-family": [
+        "unix"
+      ],
+    "no-default-libraries": false,
+    "main-needs-argc-argv":"false",
+    "pre-link-args": {
+        "gcc": [
+          "--data-sections",
+          "-march=armv5te",
+          "-mthumb",
+          "-mcpu=arm946e-s+nofp",
+          "-mthumb-interwork",
+          "-Wl,-Map,target/arm9.map",
+          "-Wl,--gc-sections"
+        ]
+      },
+      "post-link-args" : {
+        "gcc": [
+          "-Wl,--no-warn-rwx-segments",
+          "-Wl,--allow-multiple-definition"
+        ]
+      },
+      "late-link-args": {
+        "gcc": [
+            "-lgcc"
+        ]
+    },
+    "vendor" : "nintendo",
+    "os" : "nintendo_ds_arm9"
+  }  
+"#;
 
-fn main() {
-    let apt = Apt::new().unwrap();
-    let mut hid = Hid::new().unwrap();
-    let gfx = Gfx::new().unwrap();
-    let _console = Console::new(gfx.top_screen.borrow_mut());
-
-    println!("Hello, World!");
-    println!("\x1b[29;16HPress Start to exit");
-
-    while apt.main_loop() {
-        gfx.wait_for_vblank();
-
-        hid.scan_input();
-        if hid.keys_down().contains(KeyPad::START) {
-            break;
+const CUSTOM_MAIN_RS: &str = r#"#![no_main]
+#![no_std]
+use core::ffi::c_int;
+use libnds_sys::arm9_bindings::*;
+#[no_mangle]
+extern "C" fn main() -> c_int
+{
+    unsafe
+    {
+        consoleDemoInit();       
+        printf("Hello World!\n\0".as_ptr() as *const i8);
+        loop {
+            swiWaitForVBlank();
+            scanKeys();
+            let keys = keysHeld();
+            if (keys & KEY_START) > 0
+            {
+                break;
+            }
         }
     }
+    return 0;
 }
+"#;
+
+const CUSTOM_CARGO_CONFIG : &str = r#"[profile.release]
+codegen-units = 1
+opt-level=3
+debug-assertions=false
+strip = "debuginfo"
+lto = true
+overflow-checks=false
+
+[profile.dev]
+codegen-units = 1
+debug=2
+opt-level=3
+debug-assertions=false
+lto = true
+overflow-checks=false
+strip = false
 "#;
 
 impl New {
@@ -524,7 +598,9 @@ impl New {
         let toml_path = project_path.join("Cargo.toml");
         let romfs_path = project_path.join("romfs");
         let main_rs_path = project_path.join("src/main.rs");
-
+        let target_json_path = project_path.join("armv5te-nintendo-ds.json");
+        let config_path = project_path.join(".cargo/config.toml");
+        
         // Create the "romfs" directory
         fs::create_dir(romfs_path).unwrap();
 
@@ -541,6 +617,11 @@ impl New {
 
         // Add the custom changes to the main.rs file
         fs::write(main_rs_path, CUSTOM_MAIN_RS).unwrap();
+
+        fs::write(target_json_path,TARGET_JSON).unwrap();
+        fs::create_dir(project_path.join(".cargo")).unwrap();
+        fs::write(config_path, CUSTOM_CARGO_CONFIG).unwrap();
+
     }
 }
 
