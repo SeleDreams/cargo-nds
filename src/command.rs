@@ -1,4 +1,4 @@
-use std::fs;
+use std::{env, fs};
 use std::io::Read;
 use std::process::Stdio;
 use std::sync::OnceLock;
@@ -6,12 +6,12 @@ use std::sync::OnceLock;
 use cargo_metadata::Message;
 use clap::{Args, Parser, Subcommand};
 
-use crate::{build_3dsx, build_smdh, cargo, get_metadata, link, print_command, CTRConfig};
+use crate::{build_nds, cargo, get_metadata, link, print_command, NDSConfig};
 
 #[derive(Parser, Debug)]
 #[command(name = "cargo", bin_name = "cargo")]
 pub enum Cargo {
-    #[command(name = "3ds")]
+    #[command(name = "nds")]
     Input(Input),
 }
 
@@ -21,7 +21,7 @@ pub struct Input {
     #[command(subcommand)]
     pub cmd: CargoCmd,
 
-    /// Print the exact commands `cargo-3ds` is running. Note that this does not
+    /// Print the exact commands `cargo-nds` is running. Note that this does not
     /// set the verbose flag for cargo itself. To set cargo's verbosity flag, add
     /// `-- -v` to the end of the command line.
     #[arg(long, short = 'v', global = true)]
@@ -34,32 +34,32 @@ pub struct Input {
 }
 
 /// Run a cargo command. COMMAND will be forwarded to the real
-/// `cargo` with the appropriate arguments for the 3DS target.
+/// `cargo` with the appropriate arguments for the nds target.
 ///
 /// If an unrecognized COMMAND is used, it will be passed through unmodified
-/// to `cargo` with the appropriate flags set for the 3DS target.
+/// to `cargo` with the appropriate flags set for the nds target.
 #[derive(Subcommand, Debug)]
 #[command(allow_external_subcommands = true)]
 pub enum CargoCmd {
-    /// Builds an executable suitable to run on a 3DS (3dsx).
+    /// Builds an executable suitable to run on a DS (nds).
     Build(Build),
 
-    /// Builds an executable and sends it to a device with `3dslink`.
+    /// Builds an executable and sends it to a device with `dslink`.
     Run(Run),
 
-    /// Builds a test executable and sends it to a device with `3dslink`.
+    /// Builds a test executable and sends it to a device with `dslink`.
     ///
     /// This can be used with `--test` for integration tests, or `--lib` for
     /// unit tests (which require a custom test runner).
     Test(Test),
 
-    /// Sets up a new cargo project suitable to run on a 3DS.
+    /// Sets up a new cargo project suitable to run on a DS.
     New(New),
 
     // NOTE: it seems docstring + name for external subcommands are not rendered
     // in help, but we might as well set them here in case a future version of clap
     // does include them in help text.
-    /// Run any other `cargo` command with custom building tailored for the 3DS.
+    /// Run any other `cargo` command with custom building tailored for the nds.
     #[command(external_subcommand, name = "COMMAND")]
     Passthrough(Vec<String>),
 }
@@ -73,7 +73,7 @@ pub struct RemainingArgs {
     ///
     /// To pass arguments to an executable being run, a *second* `--` must be
     /// used to disambiguate cargo arguments from executable arguments.
-    /// For example, `cargo 3ds run -- -- xyz` runs an executable with the argument
+    /// For example, `cargo nds run -- -- xyz` runs an executable with the argument
     /// `xyz`.
     #[arg(
         trailing_var_arg = true,
@@ -97,23 +97,23 @@ pub struct Build {
 pub struct Run {
     /// Specify the IP address of the device to send the executable to.
     ///
-    /// Corresponds to 3dslink's `--address` arg, which defaults to automatically
+    /// Corresponds to ndslink's `--address` arg, which defaults to automatically
     /// finding the device.
     #[arg(long, short = 'a')]
     pub address: Option<std::net::Ipv4Addr>,
 
     /// Set the 0th argument of the executable when running it. Corresponds to
-    /// 3dslink's `--argv0` argument.
+    /// ndslink's `--argv0` argument.
     #[arg(long, short = '0')]
     pub argv0: Option<String>,
 
-    /// Start the 3dslink server after sending the executable. Corresponds to
-    /// 3dslink's `--server` argument.
+    /// Start the ndslink server after sending the executable. Corresponds to
+    /// ndslink's `--server` argument.
     #[arg(long, short = 's', default_value_t = false)]
     pub server: bool,
 
     /// Set the number of tries when connecting to the device to send the executable.
-    /// Corresponds to 3dslink's `--retries` argument.
+    /// Corresponds to ndslink's `--retries` argument.
     // Can't use `short = 'r'` because that would conflict with cargo's `--release/-r`
     #[arg(long)]
     pub retries: Option<usize>,
@@ -133,7 +133,7 @@ pub struct Test {
     pub no_run: bool,
 
     /// If set, documentation tests will be built instead of unit tests.
-    /// This implies `--no-run`, unless Cargo's `target.armv6k-nintendo-3ds.runner`
+    /// This implies `--no-run`, unless Cargo's `target.armv6k-nintendo-nds.runner`
     /// is configured.
     #[arg(long)]
     pub doc: bool,
@@ -158,7 +158,7 @@ impl CargoCmd {
     /// Returns the additional arguments run by the "official" cargo subcommand.
     pub fn cargo_args(&self) -> Vec<String> {
         match self {
-            CargoCmd::Build(build) => build.passthrough.cargo_args(),
+            CargoCmd::Build(build) =>build.passthrough.cargo_args(),
             CargoCmd::Run(run) => run.build_args.passthrough.cargo_args(),
             CargoCmd::Test(test) => test.cargo_args(),
             CargoCmd::New(new) => {
@@ -172,7 +172,7 @@ impl CargoCmd {
         }
     }
 
-    /// Returns the cargo subcommand run by `cargo-3ds` when handling a [`CargoCmd`].
+    /// Returns the cargo subcommand run by `cargo-nds` when handling a [`CargoCmd`].
     ///
     /// # Notes
     ///
@@ -203,13 +203,13 @@ impl CargoCmd {
         )
     }
 
-    /// Whether or not this command should build a 3DSX executable file.
-    pub fn should_build_3dsx(&self) -> bool {
+    /// Whether or not this command should build a ndsX executable file.
+    pub fn should_build_ndsx(&self) -> bool {
         match self {
             Self::Build(_) | CargoCmd::Run(_) => true,
             &Self::Test(Test { doc, .. }) => {
                 if doc {
-                    eprintln!("Documentation tests requested, no 3dsx will be built");
+                    eprintln!("Documentation tests requested, no ndsx will be built");
                     false
                 } else {
                     true
@@ -219,8 +219,8 @@ impl CargoCmd {
         }
     }
 
-    /// Whether or not the resulting executable should be sent to the 3DS with
-    /// `3dslink`.
+    /// Whether or not the resulting executable should be sent to the nds with
+    /// `ndslink`.
     pub fn should_link_to_device(&self) -> bool {
         match self {
             Self::Test(Test { no_run: true, .. }) => false,
@@ -247,7 +247,7 @@ impl CargoCmd {
 
         if let Self::Test(Test { doc: true, .. }) = self {
             // We don't care about JSON output for doctests since we're not
-            // building any 3dsx etc. Just use the default output as it's more
+            // building any ndsx etc. Just use the default output as it's more
             // readable compared to DEFAULT_MESSAGE_FORMAT
             Ok(Some(String::from("human")))
         } else {
@@ -293,11 +293,11 @@ impl CargoCmd {
     ///
     /// # Examples
     ///
-    /// - `cargo 3ds build` and other "build" commands will use their callbacks to build the final `.3dsx` file and link it.
-    /// - `cargo 3ds new` and other generic commands will use their callbacks to make 3ds-specific changes to the environment.
+    /// - `cargo nds build` and other "build" commands will use their callbacks to build the final `.ndsx` file and link it.
+    /// - `cargo nds new` and other generic commands will use their callbacks to make nds-specific changes to the environment.
     pub fn run_callback(&self, messages: &[Message]) {
         // Process the metadata only for commands that have it/use it
-        let config = if self.should_build_3dsx() {
+        let config = if self.should_build_ndsx() {
             eprintln!("Getting metadata");
 
             Some(get_metadata(messages))
@@ -343,78 +343,45 @@ impl RemainingArgs {
 }
 
 impl Build {
-    /// Callback for `cargo 3ds build`.
+    /// Callback for `cargo nds build`.
     ///
-    /// This callback handles building the application as a `.3dsx` file.
-    fn callback(&self, config: &Option<CTRConfig>) {
+    /// This callback handles building the application as a `.ndsx` file.
+    fn callback(&self, config: &Option<NDSConfig>) {
         if let Some(config) = config {
-            eprintln!("Building smdh: {}", config.path_smdh().display());
-            build_smdh(config, self.verbose);
-
-            eprintln!("Building 3dsx: {}", config.path_3dsx().display());
-            build_3dsx(config, self.verbose);
+            eprintln!("Building nds: {}", config.path_nds().display());
+            build_nds(config, self.verbose);
         }
     }
 }
 
 impl Run {
-    /// Get the args to pass to `3dslink` based on these options.
-    pub fn get_3dslink_args(&self) -> Vec<String> {
+    /// Get the args to pass to `ndslink` based on these options.
+    pub fn get_dslink_args(&self) -> Vec<String> {
         let mut args = Vec::new();
 
         if let Some(address) = self.address {
-            args.extend(["--address".to_string(), address.to_string()]);
-        }
-
-        if let Some(argv0) = &self.argv0 {
-            args.extend(["--arg0".to_string(), argv0.clone()]);
-        }
-
-        if let Some(retries) = self.retries {
-            args.extend(["--retries".to_string(), retries.to_string()]);
-        }
-
-        if self.server {
-            args.push("--server".to_string());
-        }
-
-        let exe_args = self.build_args.passthrough.exe_args();
-        if !exe_args.is_empty() {
-            // For some reason 3dslink seems to want 2 instances of `--`, one
-            // in front of all of the args like this...
-            args.extend(["--args".to_string(), "--".to_string()]);
-
-            let mut escaped = false;
-            for arg in exe_args.iter().cloned() {
-                if arg.starts_with('-') && !escaped {
-                    // And one before the first `-` arg that is passed in.
-                    args.extend(["--".to_string(), arg]);
-                    escaped = true;
-                } else {
-                    args.push(arg);
-                }
-            }
+            args.extend(["-a".to_string(), address.to_string()]);
         }
 
         args
     }
 
-    /// Callback for `cargo 3ds run`.
+    /// Callback for `cargo nds run`.
     ///
-    /// This callback handles launching the application via `3dslink`.
-    fn callback(&self, config: &Option<CTRConfig>) {
+    /// This callback handles launching the application via `dslink`.
+    fn callback(&self, config: &Option<NDSConfig>) {
         // Run the normal "build" callback
         self.build_args.callback(config);
 
         if !self.use_custom_runner() {
             if let Some(cfg) = config {
-                eprintln!("Running 3dslink");
+                eprintln!("Running dslink");
                 link(cfg, self, self.build_args.verbose);
             }
         }
     }
 
-    /// Returns whether the cargo environment has `target.armv6k-nintendo-3ds.runner`
+    /// Returns whether the cargo environment has `target.armv6k-nintendo-nds.runner`
     /// configured. This will only be checked once during the lifetime of the program,
     /// and takes into account the usual ways Cargo looks for its
     /// [configuration](https://doc.rust-lang.org/cargo/reference/config.html):
@@ -426,14 +393,16 @@ impl Run {
         static HAS_RUNNER: OnceLock<bool> = OnceLock::new();
 
         let &custom_runner_configured = HAS_RUNNER.get_or_init(|| {
+            let blocksds = env::var("BLOCKSDS").unwrap_or("/opt/wonderful/thirdparty/blocksds/core".to_owned());
+            env::set_var("RUSTFLAGS", format!("-C link-args=-specs={blocksds}/sys/crts/ds_arm9.specs"));
+
             let mut cmd = cargo(&self.config);
             cmd.args([
                 // https://github.com/rust-lang/cargo/issues/9301
                 "-Z",
-                "unstable-options",
-                "config",
-                "get",
-                "target.armv6k-nintendo-3ds.runner",
+                "build-std=core,alloc",
+                "--target",
+                "./armv5te-nintendo-ds.json"
             ])
             .stdout(Stdio::null())
             .stderr(Stdio::null());
@@ -458,10 +427,10 @@ impl Run {
 }
 
 impl Test {
-    /// Callback for `cargo 3ds test`.
+    /// Callback for `cargo nds test`.
     ///
-    /// This callback handles launching the application via `3dslink`.
-    fn callback(&self, config: &Option<CTRConfig>) {
+    /// This callback handles launching the application via `ndslink`.
+    fn callback(&self, config: &Option<NDSConfig>) {
         if self.no_run {
             // If the tests don't have to run, use the "build" callback
             self.run_args.build_args.callback(config);
@@ -479,7 +448,7 @@ impl Test {
     fn cargo_args(&self) -> Vec<String> {
         let mut cargo_args = self.run_args.build_args.passthrough.cargo_args();
 
-        // We can't run 3DS executables on the host, but we want to respect
+        // We can't run nds executables on the host, but we want to respect
         // the user's "runner" configuration if set.
         //
         // If doctests were requested, `--no-run` will be rejected on the
@@ -512,9 +481,9 @@ impl Test {
     }
 }
 
-const TOML_CHANGES: &str = r#"ctru-rs = { git = "https://github.com/rust3ds/ctru-rs" }
+const TOML_CHANGES: &str = r#"ctru-rs = { git = "https://github.com/rustnds/ctru-rs" }
 
-[package.metadata.cargo-3ds]
+[package.metadata.cargo-nds]
 romfs_dir = "romfs"
 "#;
 
@@ -541,9 +510,9 @@ fn main() {
 "#;
 
 impl New {
-    /// Callback for `cargo 3ds new`.
+    /// Callback for `cargo nds new`.
     ///
-    /// This callback handles the custom environment modifications when creating a new 3DS project.
+    /// This callback handles the custom environment modifications when creating a new nds project.
     fn callback(&self) {
         // Commmit changes to the project only if is meant to be a binary
         if self.cargo_args.args.contains(&"--lib".to_string()) {
@@ -672,7 +641,7 @@ mod tests {
                 expected_exe: &["bar"],
             },
         ] {
-            let input: Vec<&str> = ["cargo", "3ds", "run"]
+            let input: Vec<&str> = ["cargo", "nds", "run"]
                 .iter()
                 .chain(param.input)
                 .copied()

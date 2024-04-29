@@ -1,12 +1,11 @@
-use std::process;
+use std::{env, process};
 
-use cargo_3ds::command::Cargo;
-use cargo_3ds::{check_rust_version, run_cargo};
+use cargo_nds::command::Cargo;
+use cargo_nds::{check_rust_version, run_cargo};
 use clap::Parser;
 
 fn main() {
     check_rust_version();
-
     let Cargo::Input(mut input) = Cargo::parse();
 
     let message_format = match input.cmd.extract_message_format() {

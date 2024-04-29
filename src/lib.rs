@@ -21,7 +21,7 @@ use crate::graph::UnitGraph;
 /// parsing and returning the messages from the spawned process.
 ///
 /// For commands that produce an executable output, this function will build the
-/// `.elf` binary that can be used to create other 3ds files.
+/// `.elf` binary that can be used to create other nds files.
 pub fn run_cargo(input: &Input, message_format: Option<String>) -> (ExitStatus, Vec<Message>) {
     let mut command = make_cargo_command(input, &message_format);
 
@@ -57,7 +57,7 @@ pub fn run_cargo(input: &Input, message_format: Option<String>) -> (ExitStatus, 
     let buf_reader: &mut dyn BufRead = match (message_format, &input.cmd) {
         // The user presumably cares about the message format if set, so we should
         // copy stuff to stdout like they expect. We can still extract the executable
-        // information out of it that we need for 3dsxtool etc.
+        // information out of it that we need for ndstool etc.
         (Some(_), _) |
         // Rustdoc unfortunately prints to stdout for compile errors, so
         // we also use a tee when building doc tests too.
@@ -104,14 +104,11 @@ fn should_use_ctru_debuginfo(cargo_cmd: &Command, verbose: bool) -> bool {
 
 /// Create a cargo command based on the context.
 ///
-/// For "build" commands (which compile code, such as `cargo 3ds build` or `cargo 3ds clippy`),
+/// For "build" commands (which compile code, such as `cargo nds build` or `cargo nds clippy`),
 /// if there is no pre-built std detected in the sysroot, `build-std` will be used instead.
 pub fn make_cargo_command(input: &Input, message_format: &Option<String>) -> Command {
-    let devkitpro =
-        env::var("DEVKITPRO").expect("DEVKITPRO is not defined as an environment variable");
-    // TODO: should we actually prepend the user's RUSTFLAGS for linking order? not sure
-    let rustflags =
-        env::var("RUSTFLAGS").unwrap_or_default() + &format!(" -L{devkitpro}/libctru/lib");
+    let blocksds = env::var("BLOCKSDS").unwrap_or("/opt/wonderful/thirdparty/blocksds/core".to_owned());
+    let rustflags = format!("-C link-args=-specs={blocksds}/sys/crts/ds_arm9.specs");
 
     let cargo_cmd = &input.cmd;
 
@@ -125,21 +122,15 @@ pub fn make_cargo_command(input: &Input, message_format: &Option<String>) -> Com
     if cargo_cmd.should_compile() {
         command
             .arg("--target")
-            .arg("armv6k-nintendo-3ds")
+            .arg("armv5te-nintendo-ds.json")
+            .arg("-Z")
+            .arg("build-std=core,alloc")
             .arg("--message-format")
             .arg(
                 message_format
                     .as_deref()
                     .unwrap_or(CargoCmd::DEFAULT_MESSAGE_FORMAT),
             );
-
-        let sysroot = find_sysroot();
-        if !sysroot.join("lib/rustlib/armv6k-nintendo-3ds").exists() {
-            eprintln!("No pre-build std found, using build-std");
-            // Always building the test crate is not ideal, but we don't know if the
-            // crate being built uses #![feature(test)], so we build it just in case.
-            command.arg("-Z").arg("build-std=std,test");
-        }
     }
 
     if let CargoCmd::Test(test) = cargo_cmd {
@@ -212,10 +203,10 @@ pub fn check_rust_version() {
     let rustc_version = rustc_version::version_meta().unwrap();
 
     if rustc_version.channel > Channel::Nightly {
-        eprintln!("cargo-3ds requires a nightly rustc version.");
+        eprintln!("cargo-nds requires a nightly rustc version.");
         eprintln!(
             "Please run `rustup override set nightly` to use nightly in the \
-            current directory, or use `cargo +nightly 3ds` to use it for a \
+            current directory, or use `cargo +nightly nds` to use it for a \
             single invocation."
         );
         process::exit(1);
@@ -237,17 +228,17 @@ pub fn check_rust_version() {
     };
 
     if old_version || old_commit {
-        eprintln!("cargo-3ds requires rustc nightly version >= {MINIMUM_COMMIT_DATE}");
+        eprintln!("cargo-nds requires rustc nightly version >= {MINIMUM_COMMIT_DATE}");
         eprintln!("Please run `rustup update nightly` to upgrade your nightly version");
 
         process::exit(1);
     }
 }
 
-/// Parses messages returned by "build" cargo commands (such as `cargo 3ds build` or `cargo 3ds run`).
+/// Parses messages returned by "build" cargo commands (such as `cargo nds build` or `cargo nds run`).
 /// The returned [`CTRConfig`] is then used for further building in and execution
-/// in [`build_smdh`], [`build_3dsx`], and [`link`].
-pub fn get_metadata(messages: &[Message]) -> CTRConfig {
+/// in [`build_nds`], and [`link`].
+pub fn get_metadata(messages: &[Message]) -> NDSConfig {
     let metadata = MetadataCommand::new()
         .no_deps()
         .exec()
@@ -275,12 +266,12 @@ pub fn get_metadata(messages: &[Message]) -> CTRConfig {
 
     let (package, artifact) = (package.unwrap(), artifact.unwrap());
 
-    let mut icon = String::from("./icon.png");
+    let mut icon = String::from("./icon.bmp");
 
     if !Path::new(&icon).exists() {
         icon = format!(
-            "{}/libctru/default_icon.png",
-            env::var("DEVKITPRO").unwrap()
+            "{}/sys/icon.bmp",
+            env::var("BLOCKSDS").unwrap()
         );
     }
 
@@ -300,63 +291,41 @@ pub fn get_metadata(messages: &[Message]) -> CTRConfig {
         [] => String::from("Unspecified Author"), // as standard with the devkitPRO toolchain
     };
 
-    CTRConfig {
+    NDSConfig {
         name,
         author,
         description: package
             .description
             .clone()
             .unwrap_or_else(|| String::from("Homebrew Application")),
-        icon,
+        icon : icon,
         target_path: artifact.executable.unwrap().into(),
         cargo_manifest_path: package.manifest_path.into(),
     }
 }
 
-/// Builds the smdh using `smdhtool`.
-/// This will fail if `smdhtool` is not within the running directory or in a directory found in $PATH
-pub fn build_smdh(config: &CTRConfig, verbose: bool) {
-    let mut command = Command::new("smdhtool");
+/// Builds the nds using `ndstool`.
+/// This will fail if `ndstool` is not within the running directory or in a directory found in $PATH
+pub fn build_nds(config: &NDSConfig, verbose: bool) {
+    let mut command = Command::new("ndstool");
+    let banner_text = format!("\"{};{};{}\"", &config.name, &config.description, &config.author);
     command
-        .arg("--create")
-        .arg(&config.name)
-        .arg(&config.description)
-        .arg(&config.author)
+        .arg("-c")
+        .arg(config.path_nds())
+        .arg("-9")
+        .arg(config.path_arm9())
+        .arg("-7")
+        .arg(config.path_arm7())
+        .arg("-b")
         .arg(&config.icon)
-        .arg(config.path_smdh())
-        .stdin(Stdio::inherit())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit());
-
-    if verbose {
-        print_command(&command);
-    }
-
-    let mut process = command
-        .spawn()
-        .expect("smdhtool command failed, most likely due to 'smdhtool' not being in $PATH");
-
-    let status = process.wait().unwrap();
-
-    if !status.success() {
-        process::exit(status.code().unwrap_or(1));
-    }
-}
-
-/// Builds the 3dsx using `3dsxtool`.
-/// This will fail if `3dsxtool` is not within the running directory or in a directory found in $PATH
-pub fn build_3dsx(config: &CTRConfig, verbose: bool) {
-    let mut command = Command::new("3dsxtool");
-    command
-        .arg(&config.target_path)
-        .arg(config.path_3dsx())
-        .arg(format!("--smdh={}", config.path_smdh().to_string_lossy()));
+        .arg(banner_text);
 
     // If romfs directory exists, automatically include it
     let (romfs_path, is_default_romfs) = get_romfs_path(config);
     if romfs_path.is_dir() {
         eprintln!("Adding RomFS from {}", romfs_path.display());
-        command.arg(format!("--romfs={}", romfs_path.to_string_lossy()));
+        command.arg("-d")
+        .arg(&romfs_path);
     } else if !is_default_romfs {
         eprintln!(
             "Could not find configured RomFS dir: {}",
@@ -374,7 +343,7 @@ pub fn build_3dsx(config: &CTRConfig, verbose: bool) {
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .spawn()
-        .expect("3dsxtool command failed, most likely due to '3dsxtool' not being in $PATH");
+        .expect("ndstool command failed, most likely due to 'ndstool' not being in $PATH");
 
     let status = process.wait().unwrap();
 
@@ -383,13 +352,13 @@ pub fn build_3dsx(config: &CTRConfig, verbose: bool) {
     }
 }
 
-/// Link the generated 3dsx to a 3ds to execute and test using `3dslink`.
-/// This will fail if `3dslink` is not within the running directory or in a directory found in $PATH
-pub fn link(config: &CTRConfig, run_args: &Run, verbose: bool) {
-    let mut command = Command::new("3dslink");
+/// Link the generated nds to a ds to execute and test using `dslink`.
+/// This will fail if `dslink` is not within the running directory or in a directory found in $PATH
+pub fn link(config: &NDSConfig, run_args: &Run, verbose: bool) {
+    let mut command = Command::new("dslink");
     command
-        .arg(config.path_3dsx())
-        .args(run_args.get_3dslink_args())
+        .args(run_args.get_dslink_args())
+        .arg(config.path_nds())
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
@@ -407,7 +376,7 @@ pub fn link(config: &CTRConfig, run_args: &Run, verbose: bool) {
 
 /// Read the `RomFS` path from the Cargo manifest. If it's unset, use the default.
 /// The returned boolean is true when the default is used.
-pub fn get_romfs_path(config: &CTRConfig) -> (PathBuf, bool) {
+pub fn get_romfs_path(config: &NDSConfig) -> (PathBuf, bool) {
     let manifest_path = &config.cargo_manifest_path;
     let manifest_str = std::fs::read_to_string(manifest_path)
         .unwrap_or_else(|e| panic!("Could not open {}: {e}", manifest_path.display()));
@@ -422,9 +391,9 @@ pub fn get_romfs_path(config: &CTRConfig) -> (PathBuf, bool) {
         .and_then(toml::Value::as_table)
         .and_then(|table| table.get("metadata"))
         .and_then(toml::Value::as_table)
-        .and_then(|table| table.get("cargo-3ds"))
+        .and_then(|table| table.get("nds"))
         .and_then(toml::Value::as_table)
-        .and_then(|table| table.get("romfs_dir"))
+        .and_then(|table| table.get("romfs"))
         .and_then(toml::Value::as_str)
         .unwrap_or_else(|| {
             is_default = true;
@@ -437,8 +406,41 @@ pub fn get_romfs_path(config: &CTRConfig) -> (PathBuf, bool) {
     (romfs_path, is_default)
 }
 
+/// Read the `icon` path from the Cargo manifest. If it's unset, use the default.
+/// The returned boolean is true when the default is used.
+pub fn get_icon_path(config: &NDSConfig) -> (PathBuf, bool) {
+    let manifest_path = &config.cargo_manifest_path;
+    let manifest_str = std::fs::read_to_string(manifest_path)
+        .unwrap_or_else(|e| panic!("Could not open {}: {e}", manifest_path.display()));
+    let manifest_data: toml::Value =
+        toml::de::from_str(&manifest_str).expect("Could not parse Cargo manifest as TOML");
+
+    // Find the icon setting and compute the path
+    let mut is_default = false;
+    
+    let icon_setting = manifest_data
+        .as_table()
+        .and_then(|table| table.get("package"))
+        .and_then(toml::Value::as_table)
+        .and_then(|table| table.get("metadata"))
+        .and_then(toml::Value::as_table)
+        .and_then(|table| table.get("nds"))
+        .and_then(toml::Value::as_table)
+        .and_then(|table| table.get("icon"))
+        .and_then(toml::Value::as_str)
+        .unwrap_or_else(|| {
+            is_default = true;
+            "/opt/wonderful/thirdparty/blocksds/core/sys/icon.bmp"
+        });
+    let mut icon_path = manifest_path.clone();
+    icon_path.pop(); // Pop Cargo.toml
+    icon_path.push(icon_setting);
+
+    (icon_path, is_default)
+}
+
 #[derive(Default)]
-pub struct CTRConfig {
+pub struct NDSConfig {
     name: String,
     author: String,
     description: String,
@@ -447,13 +449,20 @@ pub struct CTRConfig {
     cargo_manifest_path: PathBuf,
 }
 
-impl CTRConfig {
-    pub fn path_3dsx(&self) -> PathBuf {
-        self.target_path.with_extension("3dsx")
+impl NDSConfig {
+    pub fn path_nds(&self) -> PathBuf {
+        self.target_path.with_extension("nds")
     }
-
-    pub fn path_smdh(&self) -> PathBuf {
-        self.target_path.with_extension("smdh")
+    pub fn path_arm9(&self) -> PathBuf {
+        self.target_path.with_extension("arm9.elf")
+    }
+    pub fn path_arm7(&self) -> PathBuf {
+        let arm7 =self.target_path.with_extension("arm7.elf");
+        if arm7.exists() {
+            return arm7;
+        }
+        let blocksds= env::var("BLOCKSDS").unwrap_or("/opt/wonderful/thirdparty/blocksds/core".to_owned());
+        PathBuf::from(format!("{}/sys/default_arm7/arm7.elf",blocksds))
     }
 }
 
