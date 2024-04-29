@@ -56,6 +56,8 @@ pub enum CargoCmd {
     /// Sets up a new cargo project suitable to run on a DS.
     New(New),
 
+    Init(Init),
+
     // NOTE: it seems docstring + name for external subcommands are not rendered
     // in help, but we might as well set them here in case a future version of clap
     // does include them in help text.
@@ -154,6 +156,17 @@ pub struct New {
     pub cargo_args: RemainingArgs,
 }
 
+#[derive(Args, Debug)]
+pub struct Init {
+    /// Path of the new project.
+    #[arg(required = false)]
+    pub path: String,
+
+    // The test command uses a superset of the same arguments as Run.
+    #[command(flatten)]
+    pub cargo_args: RemainingArgs,
+}
+
 impl CargoCmd {
     /// Returns the additional arguments run by the "official" cargo subcommand.
     pub fn cargo_args(&self) -> Vec<String> {
@@ -167,7 +180,14 @@ impl CargoCmd {
                 cargo_args.push(new.path.clone());
 
                 cargo_args
-            }
+            },
+            CargoCmd::Init(init) => {
+                // We push the original path in the init command (we captured it in [`Init`] to learn about the context)
+                let mut cargo_args = init.cargo_args.cargo_args();
+                cargo_args.push(init.path.clone());
+
+                cargo_args
+            },
             CargoCmd::Passthrough(other) => other.clone().split_off(1),
         }
     }
@@ -191,6 +211,7 @@ impl CargoCmd {
             }
             CargoCmd::Test(_) => "test",
             CargoCmd::New(_) => "new",
+            CargoCmd::Init(_) => "init",
             CargoCmd::Passthrough(cmd) => &cmd[0],
         }
     }
@@ -236,6 +257,7 @@ impl CargoCmd {
             Self::Build(build) => &mut build.passthrough.args,
             Self::Run(run) => &mut run.build_args.passthrough.args,
             Self::New(new) => &mut new.cargo_args.args,
+            Self::Init(init) => &mut init.cargo_args.args,
             Self::Test(test) => &mut test.run_args.build_args.passthrough.args,
             Self::Passthrough(args) => args,
         };
@@ -311,6 +333,7 @@ impl CargoCmd {
             Self::Run(cmd) => cmd.callback(&config),
             Self::Test(cmd) => cmd.callback(&config),
             Self::New(cmd) => cmd.callback(),
+            Self::Init(cmd) => cmd.callback(),
             _ => (),
         }
     }
@@ -584,6 +607,49 @@ strip = false
 "#;
 
 impl New {
+    /// Callback for `cargo nds new`.
+    ///
+    /// This callback handles the custom environment modifications when creating a new nds project.
+    fn callback(&self) {
+        // Commmit changes to the project only if is meant to be a binary
+        if self.cargo_args.args.contains(&"--lib".to_string()) {
+            return;
+        }
+
+        // Attain a canonicalised path for the new project and it's TOML manifest
+        let project_path = fs::canonicalize(&self.path).unwrap();
+        let toml_path = project_path.join("Cargo.toml");
+        let romfs_path = project_path.join("romfs");
+        let main_rs_path = project_path.join("src/main.rs");
+        let target_json_path = project_path.join("armv5te-nintendo-ds.json");
+        let config_path = project_path.join(".cargo/config.toml");
+        
+        // Create the "romfs" directory
+        fs::create_dir(romfs_path).unwrap();
+
+        // Read the contents of `Cargo.toml` to a string
+        let mut buf = String::new();
+        fs::File::open(&toml_path)
+            .unwrap()
+            .read_to_string(&mut buf)
+            .unwrap();
+
+        // Add the custom changes to the TOML
+        let buf = buf + TOML_CHANGES;
+        fs::write(&toml_path, buf).unwrap();
+
+        // Add the custom changes to the main.rs file
+        fs::write(main_rs_path, CUSTOM_MAIN_RS).unwrap();
+
+        fs::write(target_json_path,TARGET_JSON).unwrap();
+        fs::create_dir(project_path.join(".cargo")).unwrap();
+        fs::write(config_path, CUSTOM_CARGO_CONFIG).unwrap();
+
+    }
+}
+
+
+impl Init {
     /// Callback for `cargo nds new`.
     ///
     /// This callback handles the custom environment modifications when creating a new nds project.
