@@ -9,6 +9,17 @@ To install the current `master` version of `cargo-nds`:
 ```sh
 cargo install --git https://github.com/SeleDreams/cargo-nds.git
 ```
+Before attempting to use it, make sure you installed the BlocksDS toolchain !
+
+Follow the installation instructions available here : https://blocksds.github.io/docs/setup/options/
+
+You will need to set the WONDERFUL_TOOLCHAIN and BLOCKSDS environment variables and have the directory of arm-none-eabi-gcc as well as ndstool in your PATH
+
+arm-none-eabi-gcc is located at $WONDERFUL_TOOLCHAIN/toolchain/gcc-arm-none-eabi/bin
+
+ndstool is located at $BLOCKSDS/tools/ndstool
+
+to use ndslink, please check this repository https://github.com/devkitPro/install-dsilink 
 
 ## Usage
 
