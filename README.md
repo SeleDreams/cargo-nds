@@ -23,6 +23,8 @@ to use ndslink, please check this repository https://github.com/devkitPro/instal
 
 ## Usage
 
+https://github.com/SeleDreams/cargo-nds/assets/16335601/a0be4450-d253-4dd4-9dca-71adfe489de5
+
 Use the nightly toolchain to build DS apps (either by using `rustup override nightly` for the project directory or by adding `+nightly` in the `cargo` invocation).
 
 ```txt
