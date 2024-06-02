@@ -2,6 +2,8 @@
 
 Cargo command to work with Nintendo DS project binaries. Based on cargo-3ds (https://github.com/rust3ds/cargo-3ds).
 
+Relies on libnds-sys as a dependency https://github.com/SeleDreams/libnds-sys
+
 ## Installation
 
 To install the current `master` version of `cargo-nds`:
