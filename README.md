@@ -1,7 +1,5 @@
 # cargo-nds
 
-https://github.com/SeleDreams/cargo-nds/assets/16335601/b8edcd5e-386d-4477-9f2f-b5db0b942a8a
-
 cargo-nds is a Cargo command to work with Nintendo DS project binaries. Based on cargo-3ds (https://github.com/rust3ds/cargo-3ds).
 
 Relies on libnds-sys as a dependency https://github.com/SeleDreams/libnds-sys
