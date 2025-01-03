@@ -1,7 +1,7 @@
-use std::{env, fs};
 use std::io::Read;
 use std::process::Stdio;
 use std::sync::OnceLock;
+use std::{env, fs};
 
 use cargo_metadata::Message;
 use clap::{Args, Parser, Subcommand};
@@ -171,7 +171,7 @@ impl CargoCmd {
     /// Returns the additional arguments run by the "official" cargo subcommand.
     pub fn cargo_args(&self) -> Vec<String> {
         match self {
-            CargoCmd::Build(build) =>build.passthrough.cargo_args(),
+            CargoCmd::Build(build) => build.passthrough.cargo_args(),
             CargoCmd::Run(run) => run.build_args.passthrough.cargo_args(),
             CargoCmd::Test(test) => test.cargo_args(),
             CargoCmd::New(new) => {
@@ -180,14 +180,14 @@ impl CargoCmd {
                 cargo_args.push(new.path.clone());
 
                 cargo_args
-            },
+            }
             CargoCmd::Init(init) => {
                 // We push the original path in the init command (we captured it in [`Init`] to learn about the context)
                 let mut cargo_args = init.cargo_args.cargo_args();
                 cargo_args.push(init.path.clone());
 
                 cargo_args
-            },
+            }
             CargoCmd::Passthrough(other) => other.clone().split_off(1),
         }
     }
@@ -416,8 +416,12 @@ impl Run {
         static HAS_RUNNER: OnceLock<bool> = OnceLock::new();
 
         let &custom_runner_configured = HAS_RUNNER.get_or_init(|| {
-            let blocksds = env::var("BLOCKSDS").unwrap_or("/opt/wonderful/thirdparty/blocksds/core".to_owned());
-            env::set_var("RUSTFLAGS", format!("-C link-args=-specs={blocksds}/sys/crts/ds_arm9.specs"));
+            let blocksds = env::var("BLOCKSDS")
+                .unwrap_or("/opt/wonderful/thirdparty/blocksds/core".to_owned());
+            env::set_var(
+                "RUSTFLAGS",
+                format!("-C link-args=-specs={blocksds}/sys/crts/ds_arm9.specs"),
+            );
 
             let mut cmd = cargo(&self.config);
             cmd.args([
@@ -425,7 +429,7 @@ impl Run {
                 "-Z",
                 "build-std=core,alloc",
                 "--target",
-                "./armv5te-nintendo-ds.json"
+                "./armv5te-nintendo-ds.json",
             ])
             .stdout(Stdio::null())
             .stderr(Stdio::null());
@@ -519,6 +523,7 @@ const TARGET_JSON: &str = r#"{
     "is-builtin": false,
     "linker": "arm-none-eabi-gcc",
     "llvm-target": "armv5te-none-gnu",
+    "llvm-floatabi": "soft",
     "relocation-model": "static",
     "target-endian": "little",
     "target-pointer-width": "32",
@@ -560,7 +565,7 @@ const TARGET_JSON: &str = r#"{
     },
     "vendor" : "nintendo",
     "os" : "nintendo_ds_arm9"
-  }  
+  }
 "#;
 
 const CUSTOM_MAIN_RS: &str = r#"#![no_main]
@@ -569,12 +574,12 @@ extern crate alloc;
 use libnds_sys::arm9_bindings::*;
 use libnds_sys::*;
 use core::ffi::*;
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn main() -> c_int
 {
     unsafe
     {
-        consoleDemoInit();       
+        consoleDemoInit();
         println!("Hello World!");
         loop {
             swiWaitForVBlank();
@@ -590,7 +595,7 @@ extern "C" fn main() -> c_int
 }
 "#;
 
-const CUSTOM_CARGO_CONFIG : &str = r#"[profile.release]
+const CUSTOM_CARGO_CONFIG: &str = r#"[profile.release]
 codegen-units = 1
 opt-level=3
 debug-assertions=false
@@ -625,7 +630,7 @@ impl New {
         let main_rs_path = project_path.join("src/main.rs");
         let target_json_path = project_path.join("armv5te-nintendo-ds.json");
         let config_path = project_path.join(".cargo/config.toml");
-        
+
         // Create the "romfs" directory
         fs::create_dir(romfs_path).unwrap();
 
@@ -643,13 +648,11 @@ impl New {
         // Add the custom changes to the main.rs file
         fs::write(main_rs_path, CUSTOM_MAIN_RS).unwrap();
 
-        fs::write(target_json_path,TARGET_JSON).unwrap();
+        fs::write(target_json_path, TARGET_JSON).unwrap();
         fs::create_dir(project_path.join(".cargo")).unwrap();
         fs::write(config_path, CUSTOM_CARGO_CONFIG).unwrap();
-
     }
 }
-
 
 impl Init {
     /// Callback for `cargo nds new`.
@@ -668,7 +671,7 @@ impl Init {
         let main_rs_path = project_path.join("src/main.rs");
         let target_json_path = project_path.join("armv5te-nintendo-ds.json");
         let config_path = project_path.join(".cargo/config.toml");
-        
+
         // Create the "romfs" directory
         fs::create_dir(romfs_path).unwrap();
 
@@ -686,10 +689,9 @@ impl Init {
         // Add the custom changes to the main.rs file
         fs::write(main_rs_path, CUSTOM_MAIN_RS).unwrap();
 
-        fs::write(target_json_path,TARGET_JSON).unwrap();
+        fs::write(target_json_path, TARGET_JSON).unwrap();
         fs::create_dir(project_path.join(".cargo")).unwrap();
         fs::write(config_path, CUSTOM_CARGO_CONFIG).unwrap();
-
     }
 }
 
