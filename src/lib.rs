@@ -1,4 +1,5 @@
 pub mod command;
+mod config;
 mod graph;
 
 use core::fmt;
@@ -10,6 +11,7 @@ use std::{env, io, process};
 
 use cargo_metadata::{Message, MetadataCommand};
 use command::{Input, Test};
+use config::Config;
 use rustc_version::Channel;
 use semver::Version;
 use tee::TeeReader;
@@ -65,7 +67,8 @@ pub fn run_cargo(input: &Input, message_format: Option<String>) -> (ExitStatus, 
 /// For "build" commands (which compile code, such as `cargo nds build` or `cargo nds clippy`),
 /// if there is no pre-built std detected in the sysroot, `build-std` will be used instead.
 pub fn make_cargo_command(input: &Input, message_format: &Option<String>) -> Command {
-    let blocksds = env::var("BLOCKSDS").unwrap_or("/opt/wonderful/thirdparty/blocksds/core".to_owned());
+    let blocksds =
+        env::var("BLOCKSDS").unwrap_or("/opt/wonderful/thirdparty/blocksds/core".to_owned());
     let rustflags = format!("-C link-args=-specs={blocksds}/sys/crts/ds_arm9.specs");
 
     let cargo_cmd = &input.cmd;
@@ -227,10 +230,7 @@ pub fn get_metadata(messages: &[Message]) -> NDSConfig {
     let mut icon = String::from("./icon.bmp");
 
     if !Path::new(&icon).exists() {
-        icon = format!(
-            "{}/sys/icon.bmp",
-            env::var("BLOCKSDS").unwrap()
-        );
+        icon = format!("{}/sys/icon.bmp", env::var("BLOCKSDS").unwrap());
     }
 
     // for now assume a single "kind" since we only support one output artifact
@@ -250,13 +250,13 @@ pub fn get_metadata(messages: &[Message]) -> NDSConfig {
     };
 
     NDSConfig {
-        name : name,
-        author : author,
+        name: name,
+        author: author,
         description: package
             .description
             .clone()
             .unwrap_or_else(|| String::from("Homebrew Application")),
-        icon : icon,
+        icon: icon,
         target_path: artifact.executable.unwrap().into(),
         cargo_manifest_path: package.manifest_path.into(),
     }
@@ -267,7 +267,27 @@ pub fn get_metadata(messages: &[Message]) -> NDSConfig {
 pub fn build_nds(config: &NDSConfig, verbose: bool) {
     let mut command = Command::new("ndstool");
     let name = get_name(config);
-    let banner_text = format!("{};{};{}", name.0.file_name().unwrap().to_string_lossy(), &config.description, &config.author);
+
+    let output_config = Config::try_load(config).expect("Failed to load nds.toml");
+
+    let banner_text = if output_config.name.iter().any(|i| i.is_some()) {
+        output_config
+            .name
+            .into_iter()
+            .map(|i| i.unwrap_or_default())
+            .collect::<Vec<String>>()
+            .join(";")
+    } else {
+        format!(
+            "{};{};{}",
+            name.0.file_name().unwrap().to_string_lossy(),
+            &config.description,
+            &config.author
+        )
+    };
+
+    let icon = get_icon_path(config);
+
     command
         .arg("-c")
         .arg(config.path_nds())
@@ -276,15 +296,14 @@ pub fn build_nds(config: &NDSConfig, verbose: bool) {
         .arg("-7")
         .arg(config.path_arm7())
         .arg("-b")
-        .arg(&config.icon)
+        .arg(&icon)
         .arg(banner_text);
 
     // If romfs directory exists, automatically include it
     let (romfs_path, is_default_romfs) = get_romfs_path(config);
     if romfs_path.is_dir() {
         eprintln!("Adding RomFS from {}", romfs_path.display());
-        command.arg("-d")
-        .arg(&romfs_path);
+        command.arg("-d").arg(&romfs_path);
     } else if !is_default_romfs {
         eprintln!(
             "Could not find configured RomFS dir: {}",
@@ -365,7 +384,6 @@ pub fn get_romfs_path(config: &NDSConfig) -> (PathBuf, bool) {
     (romfs_path, is_default)
 }
 
-
 /// Read the `RomFS` path from the Cargo manifest. If it's unset, use the default.
 /// The returned boolean is true when the default is used.
 pub fn get_name(config: &NDSConfig) -> (PathBuf, bool) {
@@ -396,38 +414,22 @@ pub fn get_name(config: &NDSConfig) -> (PathBuf, bool) {
 
 /// Read the `icon` path from the Cargo manifest. If it's unset, use the default.
 /// The returned boolean is true when the default is used.
-pub fn get_icon_path(config: &NDSConfig) -> (PathBuf, bool) {
+pub fn get_icon_path(config: &NDSConfig) -> PathBuf {
     let manifest_path = &config.cargo_manifest_path;
-    let manifest_str = std::fs::read_to_string(manifest_path)
-        .unwrap_or_else(|e| panic!("Could not open {}: {e}", manifest_path.display()));
-    let manifest_data: toml::Value =
-        toml::de::from_str(&manifest_str).expect("Could not parse Cargo manifest as TOML");
 
-    // Find the icon setting and compute the path
-    let mut is_default = false;
-    
-    let icon_setting = manifest_data
-        .as_table()
-        .and_then(|table| table.get("package"))
-        .and_then(toml::Value::as_table)
-        .and_then(|table| table.get("metadata"))
-        .and_then(toml::Value::as_table)
-        .and_then(|table| table.get("nds"))
-        .and_then(toml::Value::as_table)
-        .and_then(|table| table.get("icon"))
-        .and_then(toml::Value::as_str)
-        .unwrap_or_else(|| {
-            is_default = true;
-            "/opt/wonderful/thirdparty/blocksds/core/sys/icon.bmp"
-        });
-    let mut icon_path = manifest_path.clone();
-    icon_path.pop(); // Pop Cargo.toml
-    icon_path.push(icon_setting);
-
-    (icon_path, is_default)
+    let config = Config::try_load(config).expect("Failed to load nds.toml");
+    match config.icon {
+        Some(icon) => {
+            let mut icon_path = manifest_path.clone();
+            icon_path.pop(); // Pop Cargo.toml
+            icon_path.push(icon);
+            icon_path
+        }
+        None => "/opt/wonderful/thirdparty/blocksds/core/sys/icon.bmp".into(),
+    }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct NDSConfig {
     name: String,
     author: String,
@@ -442,15 +444,21 @@ impl NDSConfig {
         self.target_path.with_extension("").with_extension("nds")
     }
     pub fn path_arm9(&self) -> PathBuf {
-        self.target_path.with_extension("").with_extension("arm9.elf")
+        self.target_path
+            .with_extension("")
+            .with_extension("arm9.elf")
     }
     pub fn path_arm7(&self) -> PathBuf {
-        let arm7 =self.target_path.with_extension("").with_extension("arm7.elf");
+        let arm7 = self
+            .target_path
+            .with_extension("")
+            .with_extension("arm7.elf");
         if arm7.exists() {
             return arm7;
         }
-        let blocksds= env::var("BLOCKSDS").unwrap_or("/opt/wonderful/thirdparty/blocksds/core".to_owned());
-        PathBuf::from(format!("{}/sys/default_arm7/arm7.elf",blocksds))
+        let blocksds =
+            env::var("BLOCKSDS").unwrap_or("/opt/wonderful/thirdparty/blocksds/core".to_owned());
+        PathBuf::from(format!("{}/sys/default_arm7/arm7.elf", blocksds))
     }
 }
 
