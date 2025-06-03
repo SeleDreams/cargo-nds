@@ -798,7 +798,6 @@ mod tests {
                 .copied()
                 .collect();
 
-            dbg!(&input);
             let Cargo::Input(Input {
                 cmd: CargoCmd::Run(Run { build_args, .. }),
                 ..
